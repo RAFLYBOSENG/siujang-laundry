@@ -21,16 +21,33 @@ router.get('/', async (req, res) => {
 });
 
 // GET /api/customers/:id (Untuk riwayat pesanan/More Info)
+// File: routes/customers.mjs (Update bagian ini saja)
+
+// GET /api/customers/:id - Ambil riwayat pesanan + Detail Item
 router.get('/:id', async (req, res) => {
     try {
-        const [history] = await db.query(`
+        // 1. Ambil data pesanan utama (Orders)
+        const [orders] = await db.query(`
             SELECT id AS order_id, date_of_pickup, total_price, amount_paid, created_at 
             FROM orders 
             WHERE customer_id = ? 
             ORDER BY created_at DESC
         `, [req.params.id]);
-
-        res.json(history);
+        
+        // 2. Loop setiap pesanan untuk mengambil detail paketnya (Order Items)
+        for (let order of orders) {
+            const [items] = await db.query(`
+                SELECT s.service_name, s.cloth_type, oi.kilo, oi.subtotal 
+                FROM order_items oi
+                JOIN services s ON oi.service_id = s.id
+                WHERE oi.order_id = ?
+            `, [order.order_id]);
+            
+            // Masukkan array items ke dalam object order
+            order.items = items;
+        }
+        
+        res.json(orders);
     } catch (error) {
         res.status(500).json({ error: error.message });
     }

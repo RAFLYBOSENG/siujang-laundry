@@ -11,7 +11,7 @@ router.get('/', async (req, res) => {
         const [[{ totalIncome }]] = await db.query('SELECT SUM(total_price) AS totalIncome FROM orders');
         const [[{ todayIncome }]] = await db.query('SELECT SUM(total_price) AS todayIncome FROM orders WHERE DATE(created_at) = CURDATE()');
 
-        // PERBAIKAN: Menggunakan DATE(created_at) secara konsisten agar tidak terkena error ONLY_FULL_GROUP_BY
+        // Data Grafik 1: Tren Harian (Pesanan & Pendapatan)
         const [chartData] = await db.query(`
             SELECT 
                 DATE(created_at) as date,
@@ -22,6 +22,14 @@ router.get('/', async (req, res) => {
             ORDER BY date ASC
         `);
 
+        // Data Grafik 2: Popularitas Layanan (Untuk Pie Chart)
+        const [serviceStats] = await db.query(`
+            SELECT s.service_name AS name, COUNT(oi.id) AS value
+            FROM order_items oi
+            JOIN services s ON oi.service_id = s.id
+            GROUP BY s.service_name
+        `);
+
         res.json({
             summary: {
                 totalCustomers: totalCustomers || 0,
@@ -29,7 +37,8 @@ router.get('/', async (req, res) => {
                 totalIncome: totalIncome || 0,
                 todayIncome: todayIncome || 0
             },
-            charts: chartData
+            charts: chartData,
+            serviceStats
         });
     } catch (error) {
         // Cek terminal backend Anda, error aslinya akan muncul di sana

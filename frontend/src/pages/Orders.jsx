@@ -1,234 +1,259 @@
 // File: src/pages/Orders.jsx
 import { useState, useEffect } from 'react';
+import { apiUrl, assetUrl } from '../config/api.js';
 
 export default function Orders() {
-    const [services, setServices] = useState([]);
-    const [cart, setCart] = useState([]);
+  const [services, setServices] = useState([]);
+  const [cart, setCart] = useState([]);
+  const [kiloInputs, setKiloInputs] = useState({});
+  const [dateOfPickup, setDateOfPickup] = useState('');
+  const [amountPaid, setAmountPaid] = useState('');
+  const [clothSearch, setClothSearch] = useState('');
+  
+  // State untuk menyimpan data transaksi terakhir agar bisa dicetak struknya
+  const [lastTransaction, setLastTransaction] = useState(null);
 
-    // State khusus untuk menampung input "Kilo" di masing-masing Card Layanan
-    const [kiloInputs, setKiloInputs] = useState({});
+  const totalPrice = cart.reduce((sum, item) => sum + item.subtotal, 0);
+  const changeAmount = amountPaid ? (parseFloat(amountPaid) - totalPrice) : 0;
+  const filteredServices = services.filter((service) =>
+    String(service.cloth_type || '').toLowerCase().includes(clothSearch.trim().toLowerCase())
+  );
 
-    // State untuk form Pembayaran
-    const [dateOfPickup, setDateOfPickup] = useState('');
-    const [amountPaid, setAmountPaid] = useState('');
+  useEffect(() => {
+    const fetchServices = async () => {
+      try {
+        const response = await fetch(apiUrl('/services'));
+        setServices(await response.json());
+      } catch (error) {
+        console.error(error);
+      }
+    };
+    fetchServices();
+  }, []);
 
-    // Hitung Total Belanjaan Otomatis
-    const totalPrice = cart.reduce((sum, item) => sum + item.subtotal, 0);
+  const handleKiloChange = (id, value) => setKiloInputs({ ...kiloInputs, [id]: value });
 
-    // Hitung Kembalian Otomatis
-    const changeAmount = amountPaid ? (parseFloat(amountPaid) - totalPrice) : 0;
+  const handleAddToCart = (service) => {
+    const kilo = parseFloat(kiloInputs[service.id]);
+    if (!kilo || kilo <= 0) return alert('Masukkan jumlah Kilo yang valid!');
 
-    // 1. Ambil data layanan dari Backend
-    useEffect(() => {
-        const fetchServices = async () => {
-            try {
-                const response = await fetch('http://localhost:5000/api/services');
-                const data = await response.json();
-                setServices(data);
-            } catch (error) {
-                console.error('Error fetching services:', error);
-            }
-        };
-        fetchServices();
-    }, []);
+    const newItem = { ...service, service_id: service.id, kilo, subtotal: kilo * parseFloat(service.price_per_kilo) };
+    setCart([...cart, newItem]);
+    setKiloInputs({ ...kiloInputs, [service.id]: '' });
+    setLastTransaction(null); // Reset struk sebelumnya jika ada transaksi baru
+  };
 
-    // 2. Handle perubahan input Kilo pada Card
-    const handleKiloChange = (id, value) => {
-        setKiloInputs({ ...kiloInputs, [id]: value });
+  const handlePay = async () => {
+    if (cart.length === 0) return alert('Keranjang kosong!');
+    if (!dateOfPickup) return alert('Masukkan tanggal pengambilan!');
+    if (!amountPaid || parseFloat(amountPaid) < totalPrice) return alert('Uang pembayaran kurang!');
+
+    const payload = {
+      date_of_pickup: dateOfPickup,
+      total_price: totalPrice,
+      amount_paid: parseFloat(amountPaid),
+      change_amount: changeAmount,
+      cart_items: cart.map(item => ({ service_id: item.service_id, kilo: item.kilo, subtotal: item.subtotal }))
     };
 
-    // 3. Masukkan layanan ke Keranjang (Cart)
-    const handleAddToCart = (service) => {
-        const kilo = parseFloat(kiloInputs[service.id]);
-        if (!kilo || kilo <= 0) {
-            return alert('Masukkan jumlah Kilo yang valid terlebih dahulu!');
-        }
+    try {
+      const response = await fetch(apiUrl('/orders'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
 
-        const newItem = {
-            service_id: service.id,
-            cloth_type: service.cloth_type,
-            service_name: service.service_name,
-            price_per_kilo: service.price_per_kilo,
-            kilo: kilo,
-            subtotal: kilo * parseFloat(service.price_per_kilo)
-        };
+      if (response.ok) {
+        // Simpan data untuk struk sebelum keranjang dikosongkan
+        setLastTransaction({ cart: [...cart], totalPrice, amountPaid, changeAmount, dateOfPickup });
+        
+        alert('Transaksi Berhasil!');
+        setCart([]);
+        setDateOfPickup('');
+        setAmountPaid('');
+      } else {
+        const err = await response.json();
+        alert(`Gagal: ${err.message}`);
+      }
+    } catch (error) {
+      console.error(error);
+    }
+  };
 
-        setCart([...cart, newItem]);
+  // Fungsi Cetak Struk (Thermal Printer Format)
+  const printReceipt = () => {
+    if (!lastTransaction) return;
+    const { cart, totalPrice, amountPaid, changeAmount, dateOfPickup } = lastTransaction;
+    
+    const printWindow = window.open('', '', 'width=350,height=500');
+    printWindow.document.write(`
+      <html>
+        <head>
+          <title>Struk Laundry</title>
+          <style>
+            body { font-family: 'Courier New', Courier, monospace; font-size: 12px; padding: 10px; color: #000; }
+            .center { text-align: center; }
+            .line { border-bottom: 1px dashed #000; margin: 10px 0; }
+            table { width: 100%; border-collapse: collapse; margin-bottom: 10px; }
+            th, td { text-align: left; padding: 4px 0; }
+            .right { text-align: right; }
+          </style>
+        </head>
+        <body>
+          <div class="center">
+            <h2>SIUJANG LAUNDRY</h2>
+            <p>Tgl Pengambilan: ${dateOfPickup}</p>
+          </div>
+          <div class="line"></div>
+          <table>
+            <thead><tr><th>Item</th><th class="right">Sub</th></tr></thead>
+            <tbody>
+              ${cart.map(item => `
+                <tr>
+                  <td>${item.service_name} (${item.kilo}kg)<br/><small>${item.cloth_type}</small></td>
+                  <td class="right">$${item.subtotal.toFixed(2)}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+          <div class="line"></div>
+          <table>
+            <tr><td><strong>TOTAL</strong></td><td class="right"><strong>$${totalPrice.toFixed(2)}</strong></td></tr>
+            <tr><td>Tunai</td><td class="right">$${parseFloat(amountPaid).toFixed(2)}</td></tr>
+            <tr><td>Kembali</td><td class="right">$${changeAmount.toFixed(2)}</td></tr>
+          </table>
+          <div class="line"></div>
+          <div class="center"><p>Terima Kasih Telah Memilih Layanan Kami!</p></div>
+        </body>
+      </html>
+    `);
+    printWindow.document.close();
+    printWindow.focus();
+    printWindow.print();
+  };
 
-        // Reset input kilo setelah dimasukkan ke keranjang
-        setKiloInputs({ ...kiloInputs, [service.id]: '' });
-    };
-
-    // 4. Proses Pembayaran ke Backend
-    const handlePay = async () => {
-        if (cart.length === 0) return alert('Keranjang masih kosong!');
-        if (!dateOfPickup) return alert('Masukkan tanggal pengambilan (Date of Pickup)!');
-        if (!amountPaid || parseFloat(amountPaid) < totalPrice) {
-            return alert('Jumlah bayar (Amount) tidak boleh kurang dari Total!');
-        }
-
-        // Siapkan data sesuai format API Backend
-        const payload = {
-            date_of_pickup: dateOfPickup,
-            total_price: totalPrice,
-            amount_paid: parseFloat(amountPaid),
-            change_amount: changeAmount,
-            cart_items: cart.map(item => ({
-                service_id: item.service_id,
-                kilo: item.kilo,
-                subtotal: item.subtotal
-            }))
-        };
-
-        try {
-            const response = await fetch('http://localhost:5000/api/orders', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload)
-            });
-
-            if (response.ok) {
-                alert('Transaksi Berhasil Disimpan!');
-                // Bersihkan seluruh form & keranjang setelah berhasil bayar
-                setCart([]);
-                setDateOfPickup('');
-                setAmountPaid('');
-            } else {
-                const errorData = await response.json();
-                alert(`Gagal: ${errorData.message}`);
-            }
-        } catch (error) {
-            console.error('Error saving order:', error);
-        }
-    };
-
-    return (
-        <div className="orders-layout" style={{ display: 'flex', gap: '20px', height: '100%' }}>
-
-            {/* KOLOM KIRI: Daftar Layanan (Available Services) */}
-            <div className="panel orders-services" style={{ flex: 2, backgroundColor: '#fff', border: '1px solid #ccc', borderRadius: '5px' }}>
-                <div style={{ backgroundColor: '#2a5a7d', color: 'white', padding: '10px' }}>
-                    <strong>Available Services</strong>
-                </div>
-
-                <div className="service-grid" style={{ padding: '15px', display: 'flex', flexWrap: 'wrap', gap: '15px' }}>
-                    {services.map((srv) => (
-                        <div key={srv.id} style={{ width: '200px', border: '1px solid #ddd', borderRadius: '5px', textAlign: 'center', paddingBottom: '10px', boxShadow: '0 2px 5px rgba(0,0,0,0.05)' }}>
-                            <div style={{ fontWeight: 'bold', padding: '5px 0' }}>{srv.cloth_type}</div>
-
-                            {/* Placeholder Gambar (Meniru kotak merah/biru pada desain asli) */}
-                            <div style={{ backgroundColor: '#4a2c5e', color: 'white', height: '80px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '12px' }}>
-                                SERVICE<br/>IMAGE
-                            </div>
-
-                            <div style={{ padding: '10px' }}>
-                                <div style={{ fontSize: '13px', marginBottom: '10px', height: '35px' }}>
-                                    {srv.service_name} <br/> <strong>${srv.price_per_kilo}</strong>
-                                </div>
-
-                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px', marginBottom: '10px' }}>
-                                    <label style={{ fontSize: '12px' }}>Kilo:</label>
-                                    <input
-                                        type="number"
-                                        min="0.1"
-                                        step="0.1"
-                                        value={kiloInputs[srv.id] || ''}
-                                        onChange={(e) => handleKiloChange(srv.id, e.target.value)}
-                                        style={{ width: '60px', padding: '3px' }}
-                                    />
-                                </div>
-
-                                <button
-                                    onClick={() => handleAddToCart(srv)}
-                                    style={{ backgroundColor: '#337ab7', color: 'white', border: 'none', padding: '5px 20px', borderRadius: '3px', cursor: 'pointer' }}
-                                >
-                                    Add
-                                </button>
-                            </div>
-                        </div>
-                    ))}
-                </div>
+  return (
+      <div className="orders-layout" style={{ display: 'flex', gap: '24px', height: '100%', maxWidth: '1400px', margin: '0 auto' }}>
+        
+      {/* KOLOM KIRI: Katalog Layanan */}
+      <div className="orders-services" style={{ flex: 7, backgroundColor: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05)' }}>
+        <div className="services-catalog-header" style={{ padding: '16px 20px', borderBottom: '1px solid #e2e8f0', backgroundColor: '#f8fafc', borderRadius: '12px 12px 0 0' }}>
+          <h3 style={{ fontSize: '15px', color: '#1e293b' }}>Katalog Layanan</h3>
+          <label className="cloth-search">
+            <span className="visually-hidden">Cari berdasarkan bahan kain</span>
+            <input
+              type="search"
+              value={clothSearch}
+              onChange={(event) => setClothSearch(event.target.value)}
+              placeholder="Cari bahan kain..."
+              aria-label="Cari layanan berdasarkan bahan kain"
+            />
+          </label>
+        </div>
+        
+        <div className="service-grid" style={{ flex: 1, minHeight: 0, padding: '20px', display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: '16px', overflowY: 'auto' }}>
+          {filteredServices.length === 0 ? (
+            <div className="service-empty-state">
+              Tidak ada layanan untuk bahan kain "{clothSearch}".
             </div>
-
-            {/* KOLOM KANAN: Keranjang & Pembayaran (Cart) */}
-            <div className="panel cart-panel" style={{ flex: 1, backgroundColor: '#fff', border: '1px solid #ccc', borderRadius: '5px', padding: '15px', display: 'flex', flexDirection: 'column' }}>
-
-                <div style={{ border: '1px solid #337ab7', borderRadius: '5px', overflow: 'hidden', minHeight: '200px', marginBottom: '15px' }}>
-                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
-                        <thead style={{ backgroundColor: '#337ab7', color: 'white' }}>
-                        <tr>
-                            <th style={{ padding: '8px' }}>Type</th>
-                            <th style={{ padding: '8px' }}>Service</th>
-                            <th style={{ padding: '8px' }}>Kilo</th>
-                            <th style={{ padding: '8px' }}>Price</th>
-                        </tr>
-                        </thead>
-                        <tbody>
-                        {cart.length === 0 ? (
-                            <tr>
-                                <td colSpan="4" style={{ textAlign: 'center', padding: '20px', color: '#888' }}>No content in table</td>
-                            </tr>
-                        ) : (
-                            cart.map((item, index) => (
-                                <tr key={index} style={{ borderBottom: '1px solid #eee' }}>
-                                    <td style={{ padding: '8px' }}>{item.cloth_type}</td>
-                                    <td style={{ padding: '8px' }}>{item.service_name}</td>
-                                    <td style={{ padding: '8px', textAlign: 'center' }}>{item.kilo}</td>
-                                    <td style={{ padding: '8px', textAlign: 'right' }}>${item.subtotal.toFixed(2)}</td>
-                                </tr>
-                            ))
-                        )}
-                        </tbody>
-                    </table>
+          ) : filteredServices.map((srv) => (
+            <div className="service-card" key={srv.id}>
+              {srv.image_url ? (
+                <div className="service-card-image">
+                  <img
+                    src={assetUrl(srv.image_url)}
+                    alt={srv.cloth_type}
+                  />
                 </div>
-
-                <button
-                    onClick={() => setCart([])}
-                    style={{ alignSelf: 'center', backgroundColor: '#337ab7', color: 'white', border: 'none', padding: '8px 20px', borderRadius: '3px', cursor: 'pointer', marginBottom: '20px' }}
-                >
-                    Refresh
-                </button>
-
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', marginBottom: '10px' }}>
-                    <label style={{ marginRight: '10px' }}>Date of Pickup:</label>
-                    <input
-                        type="date"
-                        value={dateOfPickup}
-                        onChange={(e) => setDateOfPickup(e.target.value)}
-                        style={{ padding: '5px' }}
-                    />
+              ) : (
+                <div className="service-card-image service-card-image-empty">
+                  No Image
                 </div>
-
-                <div style={{ textAlign: 'right', fontSize: '18px', margin: '15px 0' }}>
-                    Total: <strong>${totalPrice.toFixed(2)}</strong>
+              )}
+              <div className="service-card-body">
+                <div className="service-card-title">{srv.cloth_type}</div>
+                <div className="service-card-details">
+                  <span>{srv.service_name}</span>
+                  <strong>${srv.price_per_kilo}<small>/kg</small></strong>
                 </div>
-
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', marginBottom: '10px' }}>
-                    <label style={{ marginRight: '10px' }}>Amount:</label>
-                    <input
-                        type="number"
-                        value={amountPaid}
-                        onChange={(e) => setAmountPaid(e.target.value)}
-                        placeholder="$0.0"
-                        style={{ padding: '5px', width: '100px', textAlign: 'right' }}
-                    />
-                </div>
-
-                <div style={{ textAlign: 'right', marginBottom: '20px' }}>
-                    Change: <strong>${changeAmount < 0 ? '0.00' : changeAmount.toFixed(2)}</strong>
-                </div>
-
-                <div style={{ display: 'flex', gap: '10px' }}>
-                    <button
-                        onClick={handlePay}
-                        style={{ flex: 1, backgroundColor: '#337ab7', color: 'white', border: 'none', padding: '15px', fontSize: '16px', borderRadius: '3px', cursor: 'pointer' }}
-                    >
-                        Pay
-                    </button>
-                </div>
-
+                
+                <label className="service-card-input">
+                  <span>Kilo</span>
+                  <input type="number" min="0.1" step="0.1" placeholder="0" value={kiloInputs[srv.id] || ''} onChange={(e) => handleKiloChange(srv.id, e.target.value)} />
+                </label>
+                <button className="service-card-button" onClick={() => handleAddToCart(srv)}>Tambah</button>
+              </div>
             </div>
+          ))}
+        </div>
+      </div>
+
+      {/* KOLOM KANAN: Keranjang & Pembayaran */}
+      <div className="cart-panel" style={{ flex: 5, backgroundColor: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05)' }}>
+          <div style={{ padding: '16px 20px', borderBottom: '1px solid #e2e8f0', backgroundColor: '#f8fafc', borderRadius: '12px 12px 0 0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <h3 style={{ fontSize: '15px', color: '#1e293b' }}>Keranjang Pesanan</h3>
+          {cart.length > 0 && (
+            <button onClick={() => setCart([])} style={{ background: 'none', border: 'none', color: '#ef4444', fontSize: '13px', cursor: 'pointer', fontWeight: '500' }}>Kosongkan</button>
+          )}
+        </div>
+
+        {/* Tabel Keranjang */}
+        <div style={{ flex: 1, overflowY: 'auto', padding: '0 20px' }}>
+          {cart.length === 0 ? (
+            <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#94a3b8', fontSize: '14px' }}>Belum ada pesanan.</div>
+          ) : (
+            <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: '16px', fontSize: '13px' }}>
+              <tbody>
+                {cart.map((item, index) => (
+                  <tr key={index} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                    <td style={{ padding: '12px 0' }}>
+                      <div style={{ fontWeight: '500', color: '#334155' }}>{item.service_name}</div>
+                      <div style={{ color: '#64748b', fontSize: '12px' }}>{item.cloth_type} • {item.kilo}kg</div>
+                    </td>
+                    <td style={{ padding: '12px 0', textAlign: 'right', fontWeight: '600', color: '#0f172a' }}>${item.subtotal.toFixed(2)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+
+        {/* Area Pembayaran */}
+        <div className="payment-panel" style={{ padding: '20px', borderTop: '1px solid #e2e8f0', backgroundColor: '#f8fafc', borderRadius: '0 0 12px 12px' }}>
+          
+          <div className="payment-row" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+            <span style={{ fontSize: '13px', color: '#64748b', fontWeight: '500' }}>Tgl Pengambilan</span>
+            <input type="date" value={dateOfPickup} onChange={(e) => setDateOfPickup(e.target.value)} style={{ padding: '8px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '13px', outline: 'none' }} />
+          </div>
+
+          <div className="payment-row" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+            <span style={{ fontSize: '15px', color: '#334155', fontWeight: '600' }}>Total Tagihan</span>
+            <span style={{ fontSize: '20px', color: '#0284c7', fontWeight: '700' }}>${totalPrice.toFixed(2)}</span>
+          </div>
+
+          <div className="payment-row" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+            <span style={{ fontSize: '13px', color: '#64748b', fontWeight: '500' }}>Tunai (Amount)</span>
+            <input type="number" placeholder="$0.00" value={amountPaid} onChange={(e) => setAmountPaid(e.target.value)} style={{ width: '120px', padding: '8px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '14px', outline: 'none', textAlign: 'right' }} />
+          </div>
+
+          <div className="payment-row" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+            <span style={{ fontSize: '13px', color: '#64748b', fontWeight: '500' }}>Kembalian</span>
+            <span style={{ fontSize: '15px', color: '#10b981', fontWeight: '600' }}>${changeAmount < 0 ? '0.00' : changeAmount.toFixed(2)}</span>
+          </div>
+
+          <button onClick={handlePay} style={{ width: '100%', padding: '14px', backgroundColor: '#0284c7', color: 'white', border: 'none', borderRadius: '8px', fontSize: '15px', fontWeight: '600', cursor: 'pointer', marginBottom: '10px' }}>
+            Proses Pembayaran
+          </button>
+
+          {/* Tombol Cetak Struk hanya muncul jika ada transaksi terakhir */}
+          {lastTransaction && (
+            <button onClick={printReceipt} style={{ width: '100%', padding: '12px', backgroundColor: '#10b981', color: 'white', border: 'none', borderRadius: '8px', fontSize: '14px', fontWeight: '600', cursor: 'pointer', display: 'flex', justifyContent: 'center', gap: '8px' }}>
+              🖨️ Cetak Struk Transaksi Terakhir
+            </button>
+          )}
 
         </div>
-    );
+      </div>
+    </div>
+  );
 }

@@ -1,14 +1,20 @@
 // File: src/main.jsx
-import React from 'react';
+import { StrictMode } from 'react';
 import ReactDOM from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
-import App from './App.jsx'; // Ganti menjadi .jsx
+import App from './App.jsx';
 import './index.css';
 
-ReactDOM.createRoot(document.getElementById('root')).render(
-    <React.StrictMode>
+const rootElement = document.getElementById('root');
+
+if (!rootElement) {
+    throw new Error('Root element #root tidak ditemukan.');
+}
+
+ReactDOM.createRoot(rootElement).render(
+    <StrictMode>
         <BrowserRouter>
             <App />
         </BrowserRouter>
-    </React.StrictMode>
+    </StrictMode>
 );

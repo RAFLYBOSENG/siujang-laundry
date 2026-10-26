@@ -5,14 +5,17 @@ import './App.css';
 
 // Import Pages
 import Login from './pages/Login.jsx';
+import Landing from './pages/Landing.jsx';
 import Dashboard from './pages/Dashboard.jsx';
 import Orders from './pages/Orders.jsx';
 import Services from './pages/Services.jsx';
 import Customers from './pages/Customers.jsx';
+import Tracking from './pages/Tracking.jsx';
 
 function App() {
     // Cek token saat aplikasi pertama kali dimuat
     const [isAuthenticated, setIsAuthenticated] = useState(!!localStorage.getItem('token'));
+    const [showLanding, setShowLanding] = useState(!localStorage.getItem('token'));
     const navigate = useNavigate();
     const location = useLocation();
 
@@ -25,7 +28,9 @@ function App() {
 
     // Jika belum login, tampilkan HANYA halaman Login
     if (!isAuthenticated) {
-        return <Login onLogin={setIsAuthenticated} />;
+        return showLanding
+            ? <Landing onContinue={() => setShowLanding(false)} />
+            : <Login onLogin={setIsAuthenticated} />;
     }
 
     return (
@@ -39,7 +44,9 @@ function App() {
                     <Link className={`nav-link ${location.pathname === '/' ? 'active' : ''}`} to="/">Dashboard</Link>
                     <Link className={`nav-link ${location.pathname === '/orders' ? 'active' : ''}`} to="/orders">Orders</Link>
                     <Link className={`nav-link ${location.pathname === '/services' ? 'active' : ''}`} to="/services">Services</Link>
-                    <Link className={`nav-link ${location.pathname === '/customers' ? 'active' : ''}`} to="/customers">Customers</Link>
+                    <Link className={`nav-link ${location.pathname === '/customers'  ? 'active' : ''}`} to="/customers">Customers</Link>
+                    <Link className={`nav-link ${location.pathname === '/tracking'  ? 'active' : ''}`} to="/tracking">Tracking</Link>
+
                 </nav>
                 <button className="logout-button" onClick={handleLogout}><span>↪</span> Logout</button>
             </aside>
@@ -56,6 +63,7 @@ function App() {
                         <Route path="/orders" element={<Orders />} />
                         <Route path="/services" element={<Services />} />
                         <Route path="/customers" element={<Customers />} />
+                        <Route path="/tracking" element={<Tracking />} />
                     </Routes>
                 </div>
             </main>
